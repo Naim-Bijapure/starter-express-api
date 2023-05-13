@@ -5,7 +5,7 @@ var cors = require("cors");
 var bodyParser = require("body-parser");
 var app = express();
 
-const port = Number(process.env.PORT) || 49899;
+const port = Number(process.env.PORT) || 9999;
 
 let transactions = {};
 let transactions_multisig_lol = {};
@@ -20,6 +20,18 @@ app.get("/", function (req, res) {
     console.log("/");
     res.status(200).send("hello world");
 });
+
+// multisig.lol store api
+app.get("/multisig-lol", function (req, res) {
+    res.status(200).json({ transactions: transactions_multisig_lol });
+});
+
+app.post("/multisig-lol", function (req, res) {
+    const { transactions } = req.body;
+    transactions_multisig_lol = { ...transactions };
+    res.status(200).send("updated");
+});
+
 app.get("/:key", function (req, res) {
     let key = req.params.key;
     console.log("/", key);
@@ -234,20 +246,6 @@ app.post("/updateOwners/:ownerAddress/:walletAddress", function (request, respon
     });
 
     response.status(200).send(wallets[ownerAddress]);
-});
-
-// multisig store api
-
-app.get("/multisig", function (req, res) {
-    console.log(`n-🔴 => req: get pool`);
-    // res.status(200).json({ transactions: transactions_multisig_lol });
-    res.status(200).json({ data: "cool", transactions_multisig_lol });
-});
-
-app.post("/multisig-lol", function (req, res) {
-    const { transactions } = req.body;
-    transactions_multisig_lol = { ...transactions };
-    res.status(200).send("updated");
 });
 
 if (fs.existsSync("server.key") && fs.existsSync("server.cert")) {
