@@ -8,6 +8,7 @@ var app = express();
 const port = Number(process.env.PORT) || 9999;
 
 let transactions = {};
+let transactions_multisig = {};
 let transactions_multisig_lol = {};
 let wallets = {};
 
@@ -19,6 +20,17 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.get("/", function (req, res) {
     console.log("/");
     res.status(200).send("hello world");
+});
+
+// multisig.lol store api
+app.get("/multisig", function (req, res) {
+    res.status(200).json({ transactions: transactions_multisig });
+});
+
+app.post("/multisig", function (req, res) {
+    const { transactions } = req.body;
+    transactions_multisig = { ...transactions };
+    res.status(200).send("updated");
 });
 
 // multisig.lol store api
