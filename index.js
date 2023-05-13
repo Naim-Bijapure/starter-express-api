@@ -8,7 +8,7 @@ var app = express();
 const port = Number(process.env.PORT) || 49899;
 
 let transactions = {};
-let transactions_multisig_lol = null;
+let transactions_multisig_lol = {};
 let wallets = {};
 
 app.use(cors());
