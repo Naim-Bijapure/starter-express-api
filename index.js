@@ -238,7 +238,8 @@ app.post("/updateOwners/:ownerAddress/:walletAddress", function (request, respon
 
 // multisig store api
 
-app.get("/multisig-lol", function (req, res) {
+app.get("/multisig-lol-get", function (req, res) {
+    console.log(`n-🔴 => req: get pool`);
     res.status(200).json({ transactions: transactions_multisig_lol });
 });
 
