@@ -1,4 +1,4 @@
-const targetedNetworkId = 13337;
+const targetedNetworkId = 11155111; // sepolia
 
 const WALLET_TYPES = {
     ACCOUNT: "account",

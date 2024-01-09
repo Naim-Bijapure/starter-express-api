@@ -5,8 +5,7 @@ var cors = require("cors");
 var bodyParser = require("body-parser");
 const { createServer } = require("http");
 const { Server } = require("socket.io");
-const {GENERATE_TYPES,VERIFY_TYPES,WALLET_TYPES} = require("./constants");
-
+const { GENERATE_TYPES, VERIFY_TYPES, WALLET_TYPES, targetedNetworkId } = require("./constants");
 
 const {
     GenerateAuthenticationOptionsOpts,
@@ -122,5 +121,7 @@ app.post("/verify-auth", async (req, res) => {
         return res.status(200).json({ text: "auth", verification });
     }
 });
+
+app.post("/verify-auth", async (req, res) => {});
 
 httpServer.listen(process.env.PORT || 4000);
