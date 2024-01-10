@@ -79,7 +79,6 @@ io.on("connection", (socket) => {
 
     socket.on("getWallets", (data) => {
         const { userName } = data;
-        console.log(`n-🔴 => socket.on => userWallets:`, userWallets);
         socket.emit("setWallets", { wallets: userWallets[userName] });
     });
 
@@ -106,8 +105,6 @@ io.on("connection", (socket) => {
         } else {
             userSessions[aaguid] = [{ userName: userName, pubKey, address: signer.address }];
         }
-
-        // console.log(`n-🔴 => socket.on => userSessions:`, userSessions);
         socket.emit("setAccount", { address: signer.address });
     });
 
@@ -146,9 +143,7 @@ io.on("connection", (socket) => {
             }
 
             socket.emit("setMinted", { blockUrl });
-        } catch (error) {
-            console.log(`n-🔴 => socket.on => error:`, error);
-        }
+        } catch (error) {}
     });
 
     socket.on("executeWallet", async (data) => {
@@ -197,9 +192,7 @@ io.on("connection", (socket) => {
             blockUrl = `https://${networkName}.etherscan.io/tx/${executeRcpt.transactionHash}`;
 
             socket.emit("setMinted", { blockUrl });
-        } catch (error) {
-            console.log(`n-🔴 => socket.on => error:`, error);
-        }
+        } catch (error) {}
     });
 
     socket.on("disconnect", () => {
@@ -284,6 +277,137 @@ app.post("/verify-auth", async (req, res) => {
     }
 });
 
-app.post("/wallet-operation", async (req, res) => {});
+app.post("/sign-in", async (req, res) => {
+    const { userName, pubKey, aaguid } = req.body;
+    const hash = crypto.createHash("sha256");
+    hash.update(pubKey);
+    const privateKey = hash.digest("hex");
+    const signer = new ethers.Wallet(privateKey, provider);
+    let currentUserName = userName;
+    if (userSessions[aaguid]) {
+        let userExists = userSessions[aaguid].find((user) => user.userName === userName);
+        let newUserName = userName;
+        if (userExists) {
+            let suffix = 1;
+            let userNameWithSuffix;
+            do {
+                userNameWithSuffix = `${userName}-${suffix}`;
+                userExists = userSessions[aaguid].find((user) => user.userName === userNameWithSuffix);
+                suffix++;
+            } while (userExists);
+            newUserName = userNameWithSuffix;
+        }
+        userSessions[aaguid].push({ userName: newUserName, pubKey, address: signer.address });
+        currentUserName = newUserName;
+    } else {
+        userSessions[aaguid] = [{ userName: userName, pubKey, address: signer.address }];
+        currentUserName = userName;
+    }
+
+    return res.status(200).json({ status: true, userName: currentUserName, address: signer.address });
+});
+
+app.post("/mint-wallet", async (req, res) => {
+    console.log("minting wallet...");
+    const { pubKey, userName, aaguid } = req.body;
+    let publicKey = pubKey;
+    try {
+        let privateKey = getPrivateKey(publicKey);
+
+        const signer = new ethers.Wallet(privateKey, provider);
+
+        const balance = await signer.getBalance();
+        if (balance.gt(0) === false) {
+            return res.status(403).json({ status: false, msg: "no balance" });
+        }
+        const walletToken = new ethers.Contract(WalletToken.address, WalletToken.abi, signer);
+        let token = await walletToken.tokenID();
+        token = token.toString();
+        const hashKey = await walletToken.getTransactionHash(pubKey);
+        const mintTx = await walletToken.mint(hashKey, { gasLimit: 1000000 });
+
+        const network = await provider.getNetwork();
+        const networkName = network.name === "homestead" ? "mainnet" : network.name;
+        let blockUrl = `https://${networkName}.etherscan.io/tx/${mintTx.hash}`;
+
+        const mintReceipt = await mintTx.wait();
+        const boundWalletAddress = await walletToken.tokenBoundWalletAddress(token);
+
+        blockUrl = `https://${networkName}.etherscan.io/tx/${mintReceipt.transactionHash}`;
+
+        if (userWallets[userName]) {
+            userWallets[userName].push({ pubKey, wallet: boundWalletAddress, tokenId: token });
+        } else {
+            userWallets[userName] = [{ pubKey, wallet: boundWalletAddress, tokenId: token }];
+        }
+
+        console.log("minted wallet...");
+        return res.status(200).json({ status: true, wallets: userWallets[userName], blockUrl });
+    } catch (error) {
+        console.log("tx error", error);
+        return res.status(403).json({ status: false, msg: "error at backend" });
+    }
+});
+app.post("/execute", async (req, res) => {
+    const { pubKey, userName, aaguid, tokenId, recipient, amount, callData } = req.body;
+    try {
+        let publicKey = pubKey;
+
+        let privateKey = getPrivateKey(publicKey);
+
+        const signer = new ethers.Wallet(privateKey, provider);
+
+        const balance = await signer.getBalance();
+        if (balance.gt(0) === false) {
+            return res.status(403).json({ status: false, msg: "no balance" });
+        }
+        const walletToken = new ethers.Contract(WalletToken.address, WalletToken.abi, signer);
+        const boundWalletAddress = await walletToken.tokenBoundWalletAddress(tokenId);
+        const boundWallet = new ethers.Contract(boundWalletAddress, ERC6551Account.abi, signer);
+        const boundWalletBalance = await provider.getBalance(boundWallet.address);
+
+        const hashKey = await walletToken.getTransactionHash(pubKey);
+
+        const network = await provider.getNetwork();
+        const networkName = network.name === "homestead" ? "mainnet" : network.name;
+
+        if (boundWalletBalance.gt(0) === false) {
+            return socket.emit("emptyBalance", { message: "No fund in wallet" });
+        }
+
+        const executeTx = await boundWallet.execute(
+            signer.address,
+            ethers.utils.parseEther("" + parseFloat(amount).toFixed(12)),
+            callData,
+            hashKey,
+            {
+                gasLimit: 99999,
+            }
+        );
+        console.log("executing wallet tx...");
+
+        let blockUrl = `https://${networkName}.etherscan.io/tx/${executeTx.hash}`;
+
+        const executeRcpt = await executeTx.wait();
+
+        blockUrl = `https://${networkName}.etherscan.io/tx/${executeRcpt.transactionHash}`;
+
+        console.log("executed wallet tx...");
+        return res.status(200).json({ status: true, blockUrl });
+    } catch (error) {
+        console.log("tx error", error);
+        return res.status(403).json({ status: false, msg: "error at backend" });
+    }
+});
+
+app.post("/sessions", async (req, res) => {
+    const { aaguid } = req.body;
+    return res.status(200).json({ status: true, sessions: userSessions[aaguid] });
+});
+
+app.post("/wallets", async (req, res) => {
+    const { userName } = req.body;
+    return res.status(200).json({ status: true, wallets: userWallets[userName] });
+});
 
 httpServer.listen(process.env.PORT || 4000);
