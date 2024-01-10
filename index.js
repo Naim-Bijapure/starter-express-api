@@ -410,4 +410,9 @@ app.post("/wallets", async (req, res) => {
     return res.status(200).json({ status: true, wallets: userWallets[userName] });
 });
 
+app.get("/get-network", async (req, res) => {
+    const network = await provider.getNetwork();
+    return res.status(200).json({ status: true, network });
+});
+
 httpServer.listen(process.env.PORT || 4000);

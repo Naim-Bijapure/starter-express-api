@@ -1,6 +1,7 @@
 const targetedNetworkId = 11155111; // sepolia
 // const targetedNetworkId = 31337; // hardhat
-const targetedNetworkRpcURL = "https://api.zan.top/node/v1/eth/sepolia/public";
+const targetedNetworkRpcURL = "https://rpc.sepolia.org";
+// const targetedNetworkRpcURL = "https://api.zan.top/node/v1/eth/sepolia/public";
 // const targetedNetworkRpcURL = "http://host.docker.internal:8547";
 
 const WALLET_TYPES = {
