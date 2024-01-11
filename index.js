@@ -69,137 +69,6 @@ const io = new Server(httpServer, {
     transports: ["websocket", "polling"],
 });
 
-io.on("connection", (socket) => {
-    console.log("A user connected", socket.id);
-    // SOCKET ROUTES
-    socket.on("getSessions", (data) => {
-        const { aaguid } = data;
-        socket.emit("setSessions", { sessions: userSessions[aaguid] });
-    });
-
-    socket.on("getWallets", (data) => {
-        const { userName } = data;
-        socket.emit("setWallets", { wallets: userWallets[userName] });
-    });
-
-    socket.on("getAccount", (data) => {
-        const { userName, pubKey, aaguid } = data;
-        const hash = crypto.createHash("sha256");
-        hash.update(pubKey);
-        const privateKey = hash.digest("hex");
-        const signer = new ethers.Wallet(privateKey, provider);
-        if (userSessions[aaguid]) {
-            let userExists = userSessions[aaguid].find((user) => user.userName === userName);
-            let newUserName = userName;
-            if (userExists) {
-                let suffix = 1;
-                let userNameWithSuffix;
-                do {
-                    userNameWithSuffix = `${userName}-${suffix}`;
-                    userExists = userSessions[aaguid].find((user) => user.userName === userNameWithSuffix);
-                    suffix++;
-                } while (userExists);
-                newUserName = userNameWithSuffix;
-            }
-            userSessions[aaguid].push({ userName: newUserName, pubKey, address: signer.address });
-        } else {
-            userSessions[aaguid] = [{ userName: userName, pubKey, address: signer.address }];
-        }
-        socket.emit("setAccount", { address: signer.address });
-    });
-
-    socket.on("mintWallet", async (data) => {
-        const { pubKey, userName, aaguid } = data;
-        let publicKey = pubKey;
-        try {
-            let privateKey = getPrivateKey(publicKey);
-
-            const signer = new ethers.Wallet(privateKey, provider);
-
-            const balance = await signer.getBalance();
-            if (balance.gt(0) === false) {
-                return socket.emit("emptyBalance", { message: "empty balance" });
-            }
-            const walletToken = new ethers.Contract(WalletToken.address, WalletToken.abi, signer);
-            let token = await walletToken.tokenID();
-            token = token.toString();
-            const hashKey = await walletToken.getTransactionHash(pubKey);
-            const mintTx = await walletToken.mint(hashKey, { gasLimit: 1000000 });
-
-            const network = await provider.getNetwork();
-            const networkName = network.name === "homestead" ? "mainnet" : network.name;
-            let blockUrl = `https://${networkName}.etherscan.io/tx/${mintTx.hash}`;
-            socket.emit("setMinting", { blockUrl });
-
-            const mintReceipt = await mintTx.wait();
-            const boundWalletAddress = await walletToken.tokenBoundWalletAddress(token);
-
-            blockUrl = `https://${networkName}.etherscan.io/tx/${mintReceipt.transactionHash}`;
-
-            if (userWallets[userName]) {
-                userWallets[userName].push({ pubKey, wallet: boundWalletAddress, tokenId: token });
-            } else {
-                userWallets[userName] = [{ pubKey, wallet: boundWalletAddress, tokenId: token }];
-            }
-
-            socket.emit("setMinted", { blockUrl });
-        } catch (error) {}
-    });
-
-    socket.on("executeWallet", async (data) => {
-        const { pubKey, userName, aaguid, tokenId, recipient, amount, callData } = data;
-        try {
-            // let publicKey = userWallets[userName].find((user) => user.userName === userName).pubKey;
-            let publicKey = pubKey;
-
-            let privateKey = getPrivateKey(publicKey);
-
-            const signer = new ethers.Wallet(privateKey, provider);
-
-            const balance = await signer.getBalance();
-            if (balance.gt(0) === false) {
-                return socket.emit("emptyBalance", { message: "empty balance" });
-            }
-            const walletToken = new ethers.Contract(WalletToken.address, WalletToken.abi, signer);
-            const boundWalletAddress = await walletToken.tokenBoundWalletAddress(tokenId);
-            const boundWallet = new ethers.Contract(boundWalletAddress, ERC6551Account.abi, signer);
-            const boundWalletBalance = await provider.getBalance(boundWallet.address);
-
-            const hashKey = await walletToken.getTransactionHash(pubKey);
-
-            const network = await provider.getNetwork();
-            const networkName = network.name === "homestead" ? "mainnet" : network.name;
-
-            if (boundWalletBalance.gt(0) === false) {
-                return socket.emit("emptyBalance", { message: "No fund in wallet" });
-            }
-
-            const executeTx = await boundWallet.execute(
-                signer.address,
-                ethers.utils.parseEther("" + parseFloat(amount).toFixed(12)),
-                callData,
-                hashKey,
-                {
-                    gasLimit: 99999,
-                }
-            );
-
-            let blockUrl = `https://${networkName}.etherscan.io/tx/${executeTx.hash}`;
-            socket.emit("setMinting", { blockUrl });
-
-            const executeRcpt = await executeTx.wait();
-
-            blockUrl = `https://${networkName}.etherscan.io/tx/${executeRcpt.transactionHash}`;
-
-            socket.emit("setMinted", { blockUrl });
-        } catch (error) {}
-    });
-
-    socket.on("disconnect", () => {
-        console.log("A user disconnected");
-    });
-});
-
 app.all("/", (req, res) => {
     // console.log("Just got a request");
     res.send("Yo!");
@@ -278,38 +147,23 @@ app.post("/verify-auth", async (req, res) => {
 });
 
 app.post("/sign-in", async (req, res) => {
-    const { userName, pubKey, aaguid } = req.body;
+    const { pubKey, aaguid } = req.body;
     const hash = crypto.createHash("sha256");
     hash.update(pubKey);
     const privateKey = hash.digest("hex");
     const signer = new ethers.Wallet(privateKey, provider);
-    let currentUserName = userName;
     if (userSessions[aaguid]) {
-        let userExists = userSessions[aaguid].find((user) => user.userName === userName);
-        let newUserName = userName;
-        if (userExists) {
-            let suffix = 1;
-            let userNameWithSuffix;
-            do {
-                userNameWithSuffix = `${userName}-${suffix}`;
-                userExists = userSessions[aaguid].find((user) => user.userName === userNameWithSuffix);
-                suffix++;
-            } while (userExists);
-            newUserName = userNameWithSuffix;
-        }
-        userSessions[aaguid].push({ userName: newUserName, pubKey, address: signer.address });
-        currentUserName = newUserName;
+        userSessions[aaguid].push({ pubKey, address: signer.address });
     } else {
-        userSessions[aaguid] = [{ userName: userName, pubKey, address: signer.address }];
-        currentUserName = userName;
+        userSessions[aaguid] = [{ pubKey, address: signer.address }];
     }
 
-    return res.status(200).json({ status: true, userName: currentUserName, address: signer.address });
+    return res.status(200).json({ status: true, address: signer.address });
 });
 
 app.post("/mint-wallet", async (req, res) => {
     console.log("minting wallet...");
-    const { pubKey, userName, aaguid } = req.body;
+    const { pubKey, address, aaguid } = req.body;
     let publicKey = pubKey;
     try {
         let privateKey = getPrivateKey(publicKey);
@@ -335,21 +189,22 @@ app.post("/mint-wallet", async (req, res) => {
 
         blockUrl = `https://${networkName}.etherscan.io/tx/${mintReceipt.transactionHash}`;
 
-        if (userWallets[userName]) {
-            userWallets[userName].push({ pubKey, wallet: boundWalletAddress, tokenId: token });
+        if (userWallets[address]) {
+            userWallets[address].push({ pubKey, wallet: boundWalletAddress, tokenId: token });
         } else {
-            userWallets[userName] = [{ pubKey, wallet: boundWalletAddress, tokenId: token }];
+            userWallets[address] = [{ pubKey, wallet: boundWalletAddress, tokenId: token }];
         }
 
         console.log("minted wallet...");
-        return res.status(200).json({ status: true, wallets: userWallets[userName], blockUrl });
+        console.log(`n-🔴 => app.post => address:`, address);
+        return res.status(200).json({ status: true, wallets: userWallets[address], blockUrl });
     } catch (error) {
         console.log("tx error", error);
         return res.status(403).json({ status: false, msg: "error at backend" });
     }
 });
 app.post("/execute", async (req, res) => {
-    const { pubKey, userName, aaguid, tokenId, recipient, amount, callData } = req.body;
+    const { pubKey, aaguid, tokenId, recipient, amount, callData } = req.body;
     try {
         let publicKey = pubKey;
 
@@ -376,7 +231,7 @@ app.post("/execute", async (req, res) => {
         }
 
         const executeTx = await boundWallet.execute(
-            signer.address,
+            recipient,
             ethers.utils.parseEther("" + parseFloat(amount).toFixed(12)),
             callData,
             hashKey,
@@ -406,8 +261,8 @@ app.post("/sessions", async (req, res) => {
 });
 
 app.post("/wallets", async (req, res) => {
-    const { userName } = req.body;
-    return res.status(200).json({ status: true, wallets: userWallets[userName] });
+    const { address } = req.body;
+    return res.status(200).json({ status: true, wallets: userWallets[address] });
 });
 
 app.get("/get-network", async (req, res) => {
