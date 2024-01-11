@@ -197,7 +197,9 @@ app.post("/mint-wallet", async (req, res) => {
 
         console.log("minted wallet...");
         console.log(`n-🔴 => app.post => address:`, address);
-        return res.status(200).json({ status: true, wallets: userWallets[address], blockUrl });
+        return res
+            .status(200)
+            .json({ status: true, boundWalletAddress, tokenId: token, wallets: userWallets[address], blockUrl });
     } catch (error) {
         console.log("tx error", error);
         return res.status(403).json({ status: false, msg: "error at backend" });
